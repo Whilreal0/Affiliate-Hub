@@ -1,0 +1,14 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+!.env.example
+!.env.convex.example
+*.log
+playwright-report/
+test-results/
+coverage/
+artifacts/
+*.tsbuildinfo
+.DS_Store
