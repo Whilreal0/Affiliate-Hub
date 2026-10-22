@@ -178,6 +178,65 @@ test('affiliate URL round trip, copy, persistence, favorite, and deletion', asyn
   await expect(page.getByRole('heading', { name: 'My desk lamp', exact: true })).toHaveCount(0);
 });
 
+test('affiliate preview converts to small WebP, survives reload, and copies the complete tracking link', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/links');
+  await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Preview product');
+  const url = 'https://example.com/product?affiliate=creator&campaign=image-test';
+  await page.getByLabel('Affiliate URL').fill(url);
+  const picker = page.getByLabel(/Preview image \(optional\)/);
+  await picker.setInputFiles({
+    name: 'unsafe.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg></svg>')
+  });
+  await expect(page.getByRole('alert')).toContainText('Choose a JPG');
+  await expect(page.getByRole('button', { name: 'Save to workspace' })).toBeDisabled();
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200;
+    canvas.height = 800;
+    const context = canvas.getContext('2d')!;
+    const gradient = context.createLinearGradient(0, 0, 1200, 800);
+    gradient.addColorStop(0, '#2563eb');
+    gradient.addColorStop(1, '#f0f4ff');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 1200, 800);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await picker.setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(png, 'base64')
+  });
+  await expect(page.getByAltText('Selected preview')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save to workspace' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Save to workspace' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const card = page
+    .locator('.item-card')
+    .filter({ has: page.getByRole('heading', { name: 'Preview product', exact: true }) });
+  const thumbnail = card.locator('img');
+  await expect(thumbnail).toBeVisible();
+  const src = (await thumbnail.getAttribute('src'))!;
+  expect(src).toMatch(/^data:image\/webp;base64,/);
+  const bytes = Buffer.from(src.split(',')[1], 'base64');
+  expect(bytes.length).toBeLessThanOrEqual(100 * 1024);
+  expect(bytes.subarray(8, 12).toString()).toBe('WEBP');
+  await expect
+    .poll(() => thumbnail.evaluate((image) => (image as HTMLImageElement).naturalWidth))
+    .toBe(640);
+  await card.getByRole('button', { name: 'Copy link', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url);
+  await page.reload();
+  await expect(thumbnail).toBeVisible();
+  expect(await thumbnail.getAttribute('src')).toBe(src);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('separate prompt menus, search and accessible dialog dismissal', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Image to video', exact: true }).click();

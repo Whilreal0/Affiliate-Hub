@@ -1,4 +1,43 @@
 /* Light workspace palette. Layout and responsive rules live in app.css. */
+.item-name,
+.preview-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.item-name {
+  margin-bottom: 12px;
+}
+.item-name h3 {
+  margin-bottom: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.link-preview {
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e7ef;
+}
+.preview-picker-row label {
+  flex: 1;
+  min-width: 0;
+}
+.preview-placeholder {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  border-radius: 10px;
+}
+.preview-picker input[type='file'] {
+  padding: 8px;
+  font-size: 12px;
+}
 :root {
   color-scheme: light;
   color: #172033;

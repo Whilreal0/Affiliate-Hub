@@ -27,6 +27,38 @@ const link = {
 const pageOptions = { paginationOpts: { numItems: 10, cursor: null } };
 
 describe('public posting and record privacy', () => {
+  it('saves an image and tracking URL, keeps it owner-only, publishes it, and cleans up storage on deletion', async () => {
+    const t = createTest();
+    const alice = t.withIdentity({ subject: 'alice', name: 'Alice' });
+    const bob = t.withIdentity({ subject: 'bob' });
+    const image = Uint8Array.from(
+      Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64')
+    ).buffer;
+    await expect(t.action(api.items.createWithImage, { ...link, image })).rejects.toThrow(
+      'Unauthenticated'
+    );
+    await expect(
+      alice.action(api.items.createWithImage, { ...link, image: new ArrayBuffer(12) })
+    ).rejects.toThrow('WebP');
+    await expect(
+      alice.action(api.items.createWithImage, { ...link, image: new ArrayBuffer(102401) })
+    ).rejects.toThrow('WebP');
+    const id = await alice.action(api.items.createWithImage, { ...link, image });
+    const saved = (await alice.query(api.items.list, {}))[0];
+    expect(saved.content).toBe(link.content);
+    expect(saved.imageUrl).toBeTruthy();
+    expect(await bob.query(api.items.list, {})).toEqual([]);
+    expect((await t.query(api.items.publicFeed, pageOptions)).page).toHaveLength(0);
+    await expect(bob.mutation(api.items.remove, { id })).rejects.toThrow('Record not found');
+    await alice.mutation(api.items.setVisibility, { id, visibility: 'public' });
+    const publicItem = (await t.query(api.items.publicFeed, pageOptions)).page[0];
+    expect(publicItem.imageUrl).toBeTruthy();
+    expect(publicItem).not.toHaveProperty('imageStorageId');
+    await alice.mutation(api.items.remove, { id });
+    expect(await alice.query(api.items.list, {})).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.system.query('_storage').collect())).toHaveLength(0);
+  });
+
   it('keeps new and legacy records private; exposes published content without identity or favorites', async () => {
     const t = createTest();
     const alice = t.withIdentity({ subject: 'alice', name: 'Alice' });

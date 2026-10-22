@@ -1,5 +1,11 @@
 test
 
+## Affiliate links and preview images
+
+Add an optional JPG, PNG, WebP, or AVIF preview when saving an affiliate link. The browser resizes it to at most 640 pixels on its longest edge and converts it to WebP, with a maximum output size of 100 KB. Inputs above 12 MB are rejected. The thumbnail appears beside the link name, and **Copy link** copies the full saved URL, including tracking parameters.
+
+Cloud previews are stored in Convex file storage; the original image is not uploaded. Only authenticated users can upload, and link records retain their existing ownership checks. Deleting a link deletes its stored preview. Public Community posts include their preview. Convex image URLs are bearer URLs: someone given an image URL can view that image, even when its link record is private. Local demo previews stay in browser storage.
+
 ## Netlify deployment
 
 This project runs SvelteKit 2, Convex, Google sign-in, and an installable PWA. Netlify uses Node functions for server-rendered pages and `/api/auth/*`.

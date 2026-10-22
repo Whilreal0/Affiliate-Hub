@@ -36,8 +36,10 @@
   onvisibility={async (id, visibility) => {
     await client.mutation(itemApi.setVisibility, { id: id as Id<'items'>, visibility });
   }}
-  oncreate={async (item) => {
-    await client.mutation(itemApi.create, item);
+  oncreate={async (item, image) => {
+    if (image)
+      await client.action(itemApi.createWithImage, { ...item, image: await image.arrayBuffer() });
+    else await client.mutation(itemApi.create, item);
   }}
   onfavorite={async (id) => {
     await client.mutation(itemApi.favorite, { id: id as Id<'items'> });

@@ -39,7 +39,17 @@
       >{/if}
   </div>
   <button class="card-content" onclick={() => ondetail(item)}>
-    <h3>{item.title}</h3>
+    <div class="item-name">
+      {#if item.kind === 'link' && item.imageUrl}<img
+          class="link-preview"
+          src={item.imageUrl}
+          alt=""
+          width="56"
+          height="56"
+          loading="lazy"
+        />{/if}
+      <h3>{item.title}</h3>
+    </div>
     <p class:link-content={item.kind === 'link'}>{item.content}</p>
   </button>
   {#if community}<p class="post-author">

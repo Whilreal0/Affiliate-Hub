@@ -16,6 +16,9 @@ export const itemApi = {
     null
   >('items:setVisibility'),
   create: makeFunctionReference<'mutation', NewItem, Id<'items'>>('items:create'),
+  createWithImage: makeFunctionReference<'action', NewItem & { image: ArrayBuffer }, Id<'items'>>(
+    'items:createWithImage'
+  ),
   favorite: makeFunctionReference<'mutation', { id: Id<'items'> }, null>('items:favorite'),
   remove: makeFunctionReference<'mutation', { id: Id<'items'> }, null>('items:remove')
 };

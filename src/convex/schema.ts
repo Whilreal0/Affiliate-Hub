@@ -15,7 +15,8 @@ export default defineSchema({
     // Optional fields keep existing records private without a migration.
     visibility: v.optional(visibility),
     authorName: v.optional(v.string()),
-    publishedAt: v.optional(v.number())
+    publishedAt: v.optional(v.number()),
+    imageStorageId: v.optional(v.id('_storage'))
   })
     .index('by_owner', ['owner'])
     .index('by_visibility_published', ['visibility', 'publishedAt'])

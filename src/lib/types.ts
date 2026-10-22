@@ -23,6 +23,7 @@ export type Item = {
   visibility?: Visibility;
   authorName?: string;
   publishedAt?: number;
+  imageUrl?: string;
 };
 export type NewItem = Pick<Item, 'kind' | 'title' | 'content' | 'category' | 'tool' | 'visibility'>;
 export type AdminUser = {

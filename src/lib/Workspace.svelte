@@ -4,6 +4,7 @@
   import { modalFocus } from './modal';
   import DemoLogin from './DemoLogin.svelte';
   import ItemCard from './ItemCard.svelte';
+  import PreviewImagePicker from './PreviewImagePicker.svelte';
   import AdminPanel from './AdminPanel.svelte';
   import CloudAdminPanel from './CloudAdminPanel.svelte';
   import MobileNavigation from './MobileNavigation.svelte';
@@ -68,7 +69,7 @@
     name?: string;
     cloudItems?: Item[];
     cloudError?: string;
-    oncreate?: (item: NewItem) => Promise<void>;
+    oncreate?: (item: NewItem, image?: File) => Promise<void>;
     onfavorite?: (id: string) => Promise<void>;
     onremove?: (id: string) => Promise<void>;
     publicItems?: Item[];
@@ -103,6 +104,10 @@
     tool: ''
   });
   let problem = $state('');
+  let previewFile = $state<File | undefined>();
+  let previewData = $state<string | undefined>();
+  let imageProcessing = $state(false);
+  let imageError = $state('');
   let busy = $state(false);
   let publishing = $state(false);
   let toast = $state('');
@@ -273,10 +278,15 @@
       visibility: view === 'community' ? 'public' : 'private'
     };
     problem = '';
+    previewFile = undefined;
+    previewData = undefined;
+    imageProcessing = false;
+    imageError = '';
     modal = true;
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    if (busy || imageProcessing || imageError) return;
     problem = validateItem(editing) ?? '';
     if (problem) return;
     if (editing.visibility === 'public' && !signedIn) {
@@ -293,14 +303,17 @@
         content: editing.content.trim(),
         tool: editing.tool.trim()
       };
-      if (cloud) await oncreate?.(input);
-      else
+      if (cloud) {
+        if (!oncreate) throw new Error('Cloud saving is unavailable.');
+        await oncreate(input, editing.kind === 'link' ? previewFile : undefined);
+      } else
         persist([
           {
             ...input,
             _id: crypto.randomUUID(),
             favorite: false,
             createdAt: Date.now(),
+            ...(editing.kind === 'link' && previewData ? { imageUrl: previewData } : {}),
             ...(input.visibility === 'public'
               ? { authorName: displayName ?? 'Demo Creator', publishedAt: Date.now() }
               : {})
@@ -1060,6 +1073,10 @@
             class:chosen={editing.kind === 'prompt'}
             onclick={() => {
               editing.kind = 'prompt';
+              previewFile = undefined;
+              previewData = undefined;
+              imageProcessing = false;
+              imageError = '';
               editing.category ??= 'text-to-image';
             }}><Sparkles size={15} />Prompt</button
           >
@@ -1074,6 +1091,13 @@
             bind:value={editing.title}
           /></label
         >
+        {#if editing.kind === 'link'}<PreviewImagePicker
+            bind:file={previewFile}
+            bind:dataUrl={previewData}
+            bind:processing={imageProcessing}
+            bind:error={imageError}
+            disabled={busy}
+          />{/if}
         <div class="form-row" class:single-column={editing.kind === 'link'}>
           {#if editing.kind === 'prompt'}<label
               >Category<select bind:value={editing.category}
@@ -1127,7 +1151,10 @@
             class="secondary-button"
             disabled={busy}
             onclick={() => (modal = false)}>Cancel</button
-          ><button class="primary-button" disabled={busy} type="submit"
+          ><button
+            class="primary-button"
+            disabled={busy || imageProcessing || !!imageError}
+            type="submit"
             >{busy
               ? 'Saving…'
               : editing.visibility === 'public'
@@ -1158,7 +1185,16 @@
               ? 'AFFILIATE LINK'
               : detail.category?.replaceAll('-', ' ').toUpperCase()}</span
           >
-          <h2 id="detail-title">{detail.title}</h2>
+          <div class="item-name">
+            {#if detail.kind === 'link' && detail.imageUrl}<img
+                class="link-preview"
+                src={detail.imageUrl}
+                alt=""
+                width="56"
+                height="56"
+              />{/if}
+            <h2 id="detail-title">{detail.title}</h2>
+          </div>
         </div>
         <button
           class="icon-button"
