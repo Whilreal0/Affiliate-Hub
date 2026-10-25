@@ -148,6 +148,95 @@ test('dummy login validates credentials, survives reload, and signs out', async 
   await expect(page.getByRole('button', { name: 'Demo sign in', exact: true })).toBeVisible();
 });
 
+test('edit and delete links/prompts and manage separate library groups on mobile', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/links');
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Group name', { exact: true }).fill('Home products');
+  await dialog.getByRole('button', { name: 'Create group', exact: true }).click();
+  await expect(dialog.getByText('Home products', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close groups' }).click();
+  await page.getByLabel('Filter by group').selectOption({ label: 'Home products' });
+  await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Title', { exact: true }).fill('Grouped lamp');
+  await dialog.getByLabel('Affiliate URL').fill('https://example.com/lamp?ref=creator');
+  await dialog.getByLabel(/Preview image \(optional\)/).setInputFiles('static/icons/icon-192.png');
+  await expect(dialog.getByRole('button', { name: 'Save to workspace' })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Save to workspace' }).click();
+  const card = page
+    .locator('.item-card')
+    .filter({ has: page.getByRole('heading', { name: 'Grouped lamp', exact: true }) });
+  await expect(card.locator('img')).toBeVisible();
+  const image = await card.locator('img').getAttribute('src');
+  await card.getByRole('button', { name: /Grouped lamp https/ }).click();
+  await page.getByRole('button', { name: 'Edit link', exact: true }).click();
+  await expect(dialog.getByAltText('Current preview')).toBeVisible();
+  await dialog.getByLabel('Title', { exact: true }).fill('Updated grouped lamp');
+  await dialog
+    .getByLabel('Affiliate URL')
+    .fill('https://example.com/lamp?ref=creator&campaign=edited');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  const updated = page
+    .locator('.item-card')
+    .filter({ has: page.getByRole('heading', { name: 'Updated grouped lamp', exact: true }) });
+  await expect(updated.locator('img')).toHaveAttribute('src', image!);
+  await updated.getByRole('button', { name: 'Copy link', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'https://example.com/lamp?ref=creator&campaign=edited'
+  );
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Rename', exact: true }).click();
+  await dialog.getByLabel('Group name', { exact: true }).fill('Home essentials');
+  await dialog.getByRole('button', { name: 'Rename group', exact: true }).click();
+  await expect(dialog.getByText('Home essentials', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Delete group', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm delete group', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close groups' }).click();
+  await page.getByLabel('Filter by group').selectOption('ungrouped');
+  await expect(updated).toBeVisible();
+  await updated.getByRole('button', { name: /Updated grouped lamp https/ }).click();
+  await page.getByRole('button', { name: 'Edit link', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Remove current image' }).click();
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(updated.locator('img')).toHaveCount(0);
+  await page.reload();
+  await expect(updated).toBeVisible();
+
+  await page.goto('/prompts');
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  await dialog.getByLabel('Group name', { exact: true }).fill('Visuals');
+  await dialog.getByRole('button', { name: 'Create group', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close groups' }).click();
+  await page.getByLabel('Filter by group').selectOption({ label: 'Visuals' });
+  await page.getByRole('button', { name: 'Add prompt', exact: true }).click();
+  await dialog.getByLabel('Title', { exact: true }).fill('Grouped prompt');
+  await dialog.getByLabel('Prompt', { exact: true }).fill('Photo of [PRODUCT]');
+  await dialog.getByRole('button', { name: 'Save to workspace' }).click();
+  await page.getByRole('button', { name: /^Grouped prompt Photo/ }).click();
+  await page.getByRole('button', { name: 'Edit prompt', exact: true }).click();
+  await dialog.getByLabel('Title', { exact: true }).fill('Updated video prompt');
+  await dialog
+    .getByRole('combobox', { name: 'Category', exact: true })
+    .selectOption('image-to-video');
+  await dialog.getByLabel('Prompt', { exact: true }).fill('Animate [PRODUCT]');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: /^Updated video prompt Animate/ }).click();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Updated video prompt' })).toHaveCount(0);
+  await page.goto('/links');
+  await expect(
+    page.getByLabel('Filter by group').locator('option', { hasText: 'Visuals' })
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: /Updated grouped lamp https/ }).click();
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(updated).toHaveCount(0);
+});
+
 test('affiliate URL round trip, copy, persistence, favorite, and deletion', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
@@ -339,6 +428,10 @@ test('install controls stay off desktop, work on mobile, and disappear in instal
     });
     if (mobile) {
       await button.click();
+      await page
+        .getByRole('dialog')
+        .getByRole('button', { name: 'Install app', exact: true })
+        .click();
       await expect(button).toHaveCount(0);
       expect(await page.locator('body').getAttribute('data-prompted')).toBe('yes');
     }
@@ -366,6 +459,63 @@ test('install controls stay off desktop, work on mobile, and disappear in instal
   await expect(app.getByRole('heading', { name: 'Make yourself at home.' })).toBeVisible();
   await expect(app.getByRole('button', { name: /^Install/ })).toHaveCount(0);
   await installed.close();
+});
+
+test('mobile install sheet appears automatically, remembers dismissal, and guides iPhone users', async ({
+  browser,
+  baseURL
+}) => {
+  const context = await browser.newContext({
+    baseURL,
+    userAgent: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36',
+    isMobile: true,
+    hasTouch: true,
+    viewport: { width: 390, height: 844 }
+  });
+  const page = await context.newPage();
+  await page.goto('/more');
+  await expect(page.getByRole('button', { name: /^Install app/ })).toBeVisible();
+  await page.evaluate(() => {
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    Object.assign(event, {
+      prompt: async () => {},
+      userChoice: Promise.resolve({ outcome: 'accepted' })
+    });
+    window.dispatchEvent(event);
+  });
+  await page.getByRole('link', { name: 'Settings & setup', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Install Linkcraft' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Install app', exact: true })).toBeVisible();
+  const box = await sheet.boundingBox();
+  expect(Math.round(box!.x)).toBe(4);
+  expect(Math.round(390 - box!.x - box!.width)).toBe(4);
+  await sheet.getByRole('button', { name: 'Not now', exact: true }).click();
+  await page.reload();
+  await page.waitForTimeout(3000);
+  await expect(sheet).toHaveCount(0);
+  await context.close();
+
+  const ios = await browser.newContext({
+    baseURL,
+    userAgent:
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
+    isMobile: true,
+    hasTouch: true,
+    viewport: { width: 390, height: 844 }
+  });
+  const iphone = await ios.newPage();
+  await iphone.goto('/');
+  const instructions = iphone.getByRole('dialog', { name: 'Install Linkcraft' });
+  await expect(instructions).toBeVisible();
+  await expect(instructions.getByText('Add to Home Screen', { exact: true })).toBeVisible();
+  await expect(instructions.getByText('Share', { exact: true })).toBeVisible();
+  await expect(instructions.getByRole('button', { name: 'Install app', exact: true })).toHaveCount(
+    0
+  );
+  await iphone.mouse.click(195, 2);
+  await expect(instructions).toHaveCount(0);
+  await ios.close();
 });
 
 test('text inputs render markup as text and reject unsafe affiliate URLs', async ({ page }) => {

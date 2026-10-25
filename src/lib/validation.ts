@@ -1,3 +1,9 @@
+export function validateGroupName(name: string): string | null {
+  return !name.trim() || name.length > 60 || /[\u0000-\u001f\u007f]/.test(name)
+    ? 'Enter a group name of 1–60 characters without control characters.'
+    : null;
+}
+
 export function validateItem(item: {
   title: string;
   content: string;

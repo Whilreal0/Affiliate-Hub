@@ -1,4 +1,65 @@
 /* Light workspace palette. Layout and responsive rules live in app.css. */
+.library-groups,
+.library-groups > label,
+.group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.library-groups {
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.library-groups > label {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.library-groups select {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  padding: 10px;
+  border-radius: 7px;
+  min-width: 0;
+  max-width: 240px;
+}
+.group-list {
+  margin-top: 24px;
+}
+.group-row {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+  flex-wrap: wrap;
+}
+.group-row > strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  min-width: 0;
+}
+.prompt-library-grid {
+  margin-top: 24px;
+}
+.install-description {
+  color: var(--secondary-ink);
+  font-size: 14px;
+  line-height: 1.7;
+  margin-bottom: 18px;
+}
+.install-steps {
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.8;
+  margin-bottom: 16px;
+}
+.install-prompt .modal-actions {
+  margin-top: 24px;
+}
 .item-fields {
   border: 0;
   padding: 0;

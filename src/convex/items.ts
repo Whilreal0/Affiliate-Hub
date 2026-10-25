@@ -1,5 +1,13 @@
 import { v, ConvexError } from 'convex/values';
-import { query, mutation, action, internalMutation, type MutationCtx } from './_generated/server';
+import {
+  query,
+  mutation,
+  action,
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+  type MutationCtx
+} from './_generated/server';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import type { NewItem } from '../lib/types';
@@ -33,13 +41,23 @@ const createArgs = {
   content: v.string(),
   category: v.optional(category),
   tool: v.string(),
-  visibility: v.optional(visibility)
+  visibility: v.optional(visibility),
+  groupId: v.optional(v.id('groups'))
 };
 
-async function insertItem(ctx: MutationCtx, args: NewItem, imageStorageId?: Id<'_storage'>) {
+type ItemInput = Omit<NewItem, 'groupId'> & { groupId?: Id<'groups'> };
+async function checkGroup(ctx: MutationCtx, owner: string, item: ItemInput) {
+  if (!item.groupId) return;
+  const group = await ctx.db.get(item.groupId);
+  if (!group || group.owner !== owner || group.kind !== item.kind)
+    throw new ConvexError('Choose one of your own groups for this item type.');
+}
+
+async function insertItem(ctx: MutationCtx, args: ItemInput, imageStorageId?: Id<'_storage'>) {
   const user = await authComponent.getAuthUser(ctx);
   const problem = validateItem(args);
   if (problem) throw new ConvexError(problem);
+  await checkGroup(ctx, user._id, args);
   const now = Date.now();
   return ctx.db.insert('items', {
     ...args,
@@ -65,28 +83,105 @@ export const createWithStoredImage = internalMutation({
   handler: (ctx, { imageStorageId, ...item }) => insertItem(ctx, item, imageStorageId)
 });
 
+async function storePreview(ctx: ActionCtx, image: ArrayBuffer, kind: string) {
+  const bytes = new Uint8Array(image);
+  const signature = (start: number, length: number) =>
+    String.fromCharCode(...bytes.slice(start, start + length));
+  if (
+    kind !== 'link' ||
+    bytes.length < 12 ||
+    bytes.length > 100 * 1024 ||
+    signature(0, 4) !== 'RIFF' ||
+    signature(8, 4) !== 'WEBP'
+  ) {
+    throw new ConvexError('Choose a WebP preview image up to 100 KB for an affiliate link.');
+  }
+  return ctx.storage.store(new Blob([image], { type: 'image/webp' }));
+}
+
 export const createWithImage = action({
   args: { ...createArgs, image: v.bytes() },
   handler: async (ctx, { image, ...item }): Promise<Id<'items'>> => {
     await authComponent.getAuthUser(ctx);
     const problem = validateItem(item);
     if (problem) throw new ConvexError(problem);
-    const bytes = new Uint8Array(image);
-    const signature = (start: number, length: number) =>
-      String.fromCharCode(...bytes.slice(start, start + length));
-    if (
-      item.kind !== 'link' ||
-      bytes.length < 12 ||
-      bytes.length > 100 * 1024 ||
-      signature(0, 4) !== 'RIFF' ||
-      signature(8, 4) !== 'WEBP'
-    ) {
-      throw new ConvexError('Choose a WebP preview image up to 100 KB for an affiliate link.');
-    }
-    const imageStorageId = await ctx.storage.store(new Blob([image], { type: 'image/webp' }));
+    const imageStorageId = await storePreview(ctx, image, item.kind);
     try {
       return await ctx.runMutation(internal.items.createWithStoredImage, {
         ...item,
+        imageStorageId
+      });
+    } catch (error) {
+      await ctx.storage.delete(imageStorageId);
+      throw error;
+    }
+  }
+});
+
+export const getOwned = internalQuery({
+  args: { id: v.id('items') },
+  handler: async (ctx, { id }) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const item = await ctx.db.get(id);
+    if (!item || item.owner !== user._id) throw new ConvexError('Record not found');
+    return item;
+  }
+});
+
+async function updateItem(
+  ctx: MutationCtx,
+  id: Id<'items'>,
+  input: ItemInput,
+  removeImage = false,
+  imageStorageId?: Id<'_storage'>
+) {
+  const user = await authComponent.getAuthUser(ctx);
+  const old = await ctx.db.get(id);
+  if (!old || old.owner !== user._id) throw new ConvexError('Record not found');
+  if (old.kind !== input.kind) throw new ConvexError('The item type cannot be changed.');
+  const problem = validateItem(input);
+  if (problem) throw new ConvexError(problem);
+  await checkGroup(ctx, user._id, input);
+  const nextImage = imageStorageId ?? (removeImage ? undefined : old.imageStorageId);
+  await ctx.db.patch(id, {
+    ...input,
+    title: input.title.trim(),
+    content: input.content.trim(),
+    tool: input.tool.trim(),
+    category: input.kind === 'prompt' ? input.category : undefined,
+    groupId: input.groupId,
+    visibility: input.visibility ?? 'private',
+    imageStorageId: nextImage,
+    authorName:
+      input.visibility === 'public'
+        ? user.name?.trim().slice(0, 80) || 'Community member'
+        : undefined,
+    publishedAt: input.visibility === 'public' ? (old.publishedAt ?? Date.now()) : undefined
+  });
+  if (old.imageStorageId && old.imageStorageId !== nextImage)
+    await ctx.storage.delete(old.imageStorageId);
+  return null;
+}
+export const update = mutation({
+  args: { ...createArgs, id: v.id('items'), removeImage: v.optional(v.boolean()) },
+  handler: (ctx, { id, removeImage, ...input }) => updateItem(ctx, id, input, removeImage)
+});
+export const updateWithStoredImage = internalMutation({
+  args: { ...createArgs, id: v.id('items'), imageStorageId: v.id('_storage') },
+  handler: (ctx, { id, imageStorageId, ...input }) =>
+    updateItem(ctx, id, input, false, imageStorageId)
+});
+export const updateWithImage = action({
+  args: { ...createArgs, id: v.id('items'), image: v.bytes() },
+  handler: async (ctx, { id, image, ...input }): Promise<null> => {
+    await ctx.runQuery(internal.items.getOwned, { id });
+    const problem = validateItem(input);
+    if (problem) throw new ConvexError(problem);
+    const imageStorageId = await storePreview(ctx, image, input.kind);
+    try {
+      return await ctx.runMutation(internal.items.updateWithStoredImage, {
+        ...input,
+        id,
         imageStorageId
       });
     } catch (error) {

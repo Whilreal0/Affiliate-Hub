@@ -3,6 +3,11 @@ import { v } from 'convex/values';
 export const category = v.union(v.literal('text-to-image'), v.literal('image-to-video'));
 export const visibility = v.union(v.literal('private'), v.literal('public'));
 export default defineSchema({
+  groups: defineTable({
+    owner: v.string(),
+    kind: v.union(v.literal('link'), v.literal('prompt')),
+    name: v.string()
+  }).index('by_owner', ['owner']),
   items: defineTable({
     owner: v.string(),
     kind: v.union(v.literal('link'), v.literal('prompt')),
@@ -16,8 +21,10 @@ export default defineSchema({
     visibility: v.optional(visibility),
     authorName: v.optional(v.string()),
     publishedAt: v.optional(v.number()),
-    imageStorageId: v.optional(v.id('_storage'))
+    imageStorageId: v.optional(v.id('_storage')),
+    groupId: v.optional(v.id('groups'))
   })
     .index('by_owner', ['owner'])
+    .index('by_group', ['groupId'])
     .index('by_visibility_published', ['visibility', 'publishedAt'])
 });

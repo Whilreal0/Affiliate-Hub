@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as auth from "../auth.js";
 import type * as authOrigins from "../authOrigins.js";
+import type * as groups from "../groups.js";
 import type * as http from "../http.js";
 import type * as items from "../items.js";
 
@@ -24,6 +25,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   auth: typeof auth;
   authOrigins: typeof authOrigins;
+  groups: typeof groups;
   http: typeof http;
   items: typeof items;
 }>;

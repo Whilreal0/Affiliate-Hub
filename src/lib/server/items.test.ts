@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { defineTestApp } from 'convex-test';
 import schema from '../../convex/schema';
 import * as items from '../../convex/items';
+import * as groups from '../../convex/groups';
 
 // Replace only the external session service; database, indexes, validators,
 // access checks, and the public projection execute through convex-test.
@@ -17,7 +18,7 @@ vi.mock('../../convex/auth', () => ({
   }
 }));
 
-const { api, createTest } = defineTestApp({ schema }).defineModules({ items });
+const { api, createTest } = defineTestApp({ schema }).defineModules({ items, groups });
 const link = {
   kind: 'link' as const,
   title: 'Desk lamp',
@@ -27,6 +28,101 @@ const link = {
 const pageOptions = { paginationOpts: { numItems: 10, cursor: null } };
 
 describe('public posting and record privacy', () => {
+  it('keeps groups private, separates link/prompt groups, and rejects cross-account assignments', async () => {
+    const t = createTest();
+    const alice = t.withIdentity({ subject: 'alice' });
+    const bob = t.withIdentity({ subject: 'bob' });
+    await expect(t.mutation(api.groups.create, { kind: 'link', name: 'Home' })).rejects.toThrow(
+      'Unauthenticated'
+    );
+    const groupId = await alice.mutation(api.groups.create, { kind: 'link', name: 'Home' });
+    const promptGroup = await alice.mutation(api.groups.create, { kind: 'prompt', name: 'Home' });
+    expect(await bob.query(api.groups.list, {})).toEqual([]);
+    await expect(
+      alice.mutation(api.groups.create, { kind: 'link', name: ' home ' })
+    ).rejects.toThrow('already exists');
+    await expect(
+      alice.mutation(api.groups.create, { kind: 'link', name: 'x'.repeat(61) })
+    ).rejects.toThrow('group name');
+    await expect(bob.mutation(api.groups.rename, { id: groupId, name: 'Other' })).rejects.toThrow(
+      'Group not found'
+    );
+    await expect(bob.mutation(api.groups.remove, { id: groupId })).rejects.toThrow(
+      'Group not found'
+    );
+    await expect(bob.mutation(api.items.create, { ...link, groupId })).rejects.toThrow(
+      'own groups'
+    );
+    await expect(
+      alice.mutation(api.items.create, { ...link, groupId: promptGroup })
+    ).rejects.toThrow('own groups');
+    const id = await alice.mutation(api.items.create, { ...link, groupId, visibility: 'public' });
+    expect((await t.query(api.items.publicFeed, pageOptions)).page[0]).not.toHaveProperty(
+      'groupId'
+    );
+    await alice.mutation(api.groups.rename, { id: groupId, name: 'Home essentials' });
+    await alice.mutation(api.groups.remove, { id: groupId });
+    const saved = (await alice.query(api.items.list, {})).find((item) => item._id === id)!;
+    expect(saved.groupId).toBeUndefined();
+    expect(saved.content).toBe(link.content);
+  });
+
+  it('edits owned items, preserves existing images/favorites, replaces/removes images, and updates published content', async () => {
+    const t = createTest();
+    const alice = t.withIdentity({ subject: 'alice' });
+    const bob = t.withIdentity({ subject: 'bob' });
+    const image = Uint8Array.from(
+      Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64')
+    ).buffer;
+    const id = await alice.action(api.items.createWithImage, { ...link, image });
+    await alice.mutation(api.items.favorite, { id });
+    const before = (await alice.query(api.items.list, {}))[0];
+    const update = {
+      ...link,
+      id,
+      title: 'Updated lamp',
+      content: 'https://example.com/lamp?ref=alice&campaign=edited',
+      visibility: 'public' as const
+    };
+    await expect(bob.mutation(api.items.update, update)).rejects.toThrow('Record not found');
+    await expect(bob.action(api.items.updateWithImage, { ...update, image })).rejects.toThrow(
+      'Record not found'
+    );
+    await expect(
+      alice.mutation(api.items.update, { ...update, content: 'javascript:alert(1)' })
+    ).rejects.toThrow();
+    await alice.mutation(api.items.update, update);
+    const changed = (await alice.query(api.items.list, {}))[0];
+    expect(changed).toMatchObject({
+      createdAt: before.createdAt,
+      favorite: true,
+      imageUrl: before.imageUrl,
+      content: update.content
+    });
+    expect((await t.query(api.items.publicFeed, pageOptions)).page[0].title).toBe('Updated lamp');
+    await alice.action(api.items.updateWithImage, { ...update, image });
+    expect(await t.run((ctx) => ctx.db.system.query('_storage').collect())).toHaveLength(1);
+    await alice.mutation(api.items.update, { ...update, removeImage: true, visibility: 'private' });
+    expect(await t.run((ctx) => ctx.db.system.query('_storage').collect())).toHaveLength(0);
+    expect((await t.query(api.items.publicFeed, pageOptions)).page).toHaveLength(0);
+    const prompt = {
+      ...link,
+      kind: 'prompt' as const,
+      category: 'text-to-image' as const,
+      content: 'Image prompt'
+    };
+    const promptId = await alice.mutation(api.items.create, prompt);
+    await alice.mutation(api.items.update, {
+      ...prompt,
+      id: promptId,
+      category: 'image-to-video',
+      content: 'Updated video prompt'
+    });
+    expect(
+      (await alice.query(api.items.list, {})).find((item) => item._id === promptId)?.category
+    ).toBe('image-to-video');
+  });
+
   it('saves an image and tracking URL, keeps it owner-only, publishes it, and cleans up storage on deletion', async () => {
     const t = createTest();
     const alice = t.withIdentity({ subject: 'alice', name: 'Alice' });

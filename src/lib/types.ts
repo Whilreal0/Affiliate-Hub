@@ -24,8 +24,13 @@ export type Item = {
   authorName?: string;
   publishedAt?: number;
   imageUrl?: string;
+  groupId?: string;
 };
-export type NewItem = Pick<Item, 'kind' | 'title' | 'content' | 'category' | 'tool' | 'visibility'>;
+export type NewItem = Pick<
+  Item,
+  'kind' | 'title' | 'content' | 'category' | 'tool' | 'visibility' | 'groupId'
+>;
+export type LibraryGroup = { _id: string; name: string; kind: 'link' | 'prompt' };
 export type AdminUser = {
   id: string;
   name: string;

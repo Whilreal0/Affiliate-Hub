@@ -2,8 +2,10 @@
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { modalFocus } from './modal';
+  import { usePwaInstall } from './pwa-install.svelte';
   import DemoLogin from './DemoLogin.svelte';
   import ItemCard from './ItemCard.svelte';
+  import LibraryGroups from './LibraryGroups.svelte';
   import PreviewImagePicker from './PreviewImagePicker.svelte';
   import AdminPanel from './AdminPanel.svelte';
   import CloudAdminPanel from './CloudAdminPanel.svelte';
@@ -33,8 +35,8 @@
   } from '@lucide/svelte';
   import { authClient } from './auth-client';
   import { demoItems } from './demo';
-  import { validateItem } from './validation';
-  import type { Item, NewItem, Category, Visibility, WorkspaceView } from './types';
+  import { validateItem, validateGroupName } from './validation';
+  import type { Item, NewItem, Category, Visibility, WorkspaceView, LibraryGroup } from './types';
 
   let {
     initialView = 'overview',
@@ -52,6 +54,12 @@
     onloadmore,
     onvisibility,
     oncreate,
+    onupdate,
+    cloudGroups = [],
+    groupError,
+    oncreategroup,
+    onrenamegroup,
+    onremovegroup,
     onfavorite,
     onremove,
     superAdmin = false,
@@ -69,6 +77,12 @@
     name?: string;
     cloudItems?: Item[];
     cloudError?: string;
+    cloudGroups?: LibraryGroup[];
+    groupError?: string;
+    onupdate?: (id: string, item: NewItem, image?: File, removeImage?: boolean) => Promise<void>;
+    oncreategroup?: (kind: 'link' | 'prompt', name: string) => Promise<void>;
+    onrenamegroup?: (id: string, name: string) => Promise<void>;
+    onremovegroup?: (id: string) => Promise<void>;
     oncreate?: (item: NewItem, image?: File) => Promise<void>;
     onfavorite?: (id: string) => Promise<void>;
     onremove?: (id: string) => Promise<void>;
@@ -83,6 +97,14 @@
   let view = $state<View>(untrack(() => initialView));
   let localItems = $state<Item[]>([]);
   let ready = $state(false);
+  let localGroups = $state<LibraryGroup[]>([]);
+  let selectedGroup = $state('all');
+  const groups = $derived(cloud ? cloudGroups : localGroups);
+  const groupKind = $derived(view === 'links' ? 'link' : 'prompt');
+  const libraryGroups = $derived(groups.filter((group) => group.kind === groupKind));
+  let editingId = $state<string | null>(null);
+  let originalImage = $state<string | undefined>();
+  let removeImage = $state(false);
   let demoSignedIn = $state(false);
   let demoSuperAdmin = $state(false);
   let showDemoLogin = $state(false);
@@ -116,10 +138,8 @@
   let categoryFilter = $state('all');
   let communityFilter = $state('all');
   let detail = $state<Item | null>(null);
-  let installEvent = $state<
-    (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
-  >(null);
-  let canInstall = $state(false);
+  const pwaInstall = usePwaInstall();
+  const canInstall = $derived(pwaInstall.state.available);
   let online = $state(true);
   let toastTimer: ReturnType<typeof setTimeout>;
   let copyTimer: ReturnType<typeof setTimeout>;
@@ -167,6 +187,13 @@
         (i.kind !== 'prompt' || i.category !== communityFilter)
       )
         return false;
+      if (view === 'prompts' && i.kind !== 'prompt') return false;
+      if (
+        ['links', 'prompts', 'text-to-image', 'image-to-video'].includes(view) &&
+        selectedGroup !== 'all' &&
+        (selectedGroup === 'ungrouped' ? !!i.groupId : i.groupId !== selectedGroup)
+      )
+        return false;
       if (view === 'links' && i.kind !== 'link') return false;
       if (
         (view === 'text-to-image' || view === 'image-to-video') &&
@@ -192,25 +219,6 @@
     localItems = next;
   }
   onMount(() => {
-    const mobile =
-      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const standalone = window.matchMedia('(display-mode: standalone)');
-    let installedHere = false;
-    try {
-      installedHere = sessionStorage.getItem('linkcraft-installed-session') === 'yes';
-    } catch {
-      /* Display mode still detects installed app windows. */
-    }
-    const updateInstallVisibility = () => {
-      canInstall =
-        mobile &&
-        !installedHere &&
-        !standalone.matches &&
-        !(navigator as Navigator & { standalone?: boolean }).standalone;
-    };
-    updateInstallVisibility();
-    standalone.addEventListener('change', updateInstallVisibility);
     if (!cloud) {
       try {
         const storedSession = sessionStorage.getItem('linkcraft-demo-session');
@@ -252,31 +260,32 @@
       localItems = structuredClone(demoItems);
       notify('Local storage could not be read. Showing sample prompts.');
     }
+    try {
+      const savedGroups: unknown = JSON.parse(localStorage.getItem('linkcraft-groups-v1') ?? '[]');
+      if (
+        Array.isArray(savedGroups) &&
+        savedGroups.every(
+          (group) =>
+            typeof group._id === 'string' &&
+            ['link', 'prompt'].includes(group.kind) &&
+            typeof group.name === 'string' &&
+            !validateGroupName(group.name)
+        )
+      )
+        localGroups = savedGroups;
+    } catch {
+      /* Invalid local groups do not replace the library. */
+    }
     ready = true;
     online = navigator.onLine;
     const status = () => (online = navigator.onLine);
-    const install = (e: Event) => {
-      e.preventDefault();
-      if (canInstall) installEvent = e as typeof installEvent;
-    };
-    const installed = () => {
-      installEvent = null;
-      installedHere = true;
-      rememberInstalled();
-      notify('Linkcraft installed. You’re all set!');
-    };
     window.addEventListener('online', status);
     window.addEventListener('offline', status);
-    window.addEventListener('beforeinstallprompt', install);
-    window.addEventListener('appinstalled', installed);
     return () => {
       clearTimeout(toastTimer);
       clearTimeout(copyTimer);
       window.removeEventListener('online', status);
       window.removeEventListener('offline', status);
-      window.removeEventListener('beforeinstallprompt', install);
-      window.removeEventListener('appinstalled', installed);
-      standalone.removeEventListener('change', updateInstallVisibility);
     };
   });
   function navigate(next: View) {
@@ -292,7 +301,13 @@
       notify('Sign in with Google to save to your workspace.');
       return;
     }
+    editingId = null;
+    originalImage = undefined;
+    removeImage = false;
     editing = {
+      groupId: libraryGroups.some((group) => group._id === selectedGroup && group.kind === kind)
+        ? selectedGroup
+        : undefined,
       kind,
       category,
       title: '',
@@ -326,7 +341,28 @@
         content: editing.content.trim(),
         tool: editing.tool.trim()
       };
-      if (cloud) {
+      if (editingId) {
+        if (cloud) {
+          if (!onupdate) throw new Error('Cloud editing is unavailable.');
+          await onupdate(editingId, input, previewFile, removeImage);
+        } else
+          persist(
+            localItems.map((item) =>
+              item._id === editingId
+                ? {
+                    ...item,
+                    ...input,
+                    groupId: input.groupId,
+                    imageUrl: previewData ?? (removeImage ? undefined : item.imageUrl),
+                    authorName:
+                      input.visibility === 'public' ? (displayName ?? 'Demo Creator') : undefined,
+                    publishedAt:
+                      input.visibility === 'public' ? (item.publishedAt ?? Date.now()) : undefined
+                  }
+                : item
+            )
+          );
+      } else if (cloud) {
         if (!oncreate) throw new Error('Cloud saving is unavailable.');
         await oncreate(input, editing.kind === 'link' ? previewFile : undefined);
       } else
@@ -345,16 +381,77 @@
         ]);
       modal = false;
       notify(
-        editing.visibility === 'public'
-          ? cloud
-            ? 'Published to the Community feed.'
-            : 'Published to the demo Community feed in this browser.'
-          : `${editing.kind === 'link' ? 'Affiliate link' : 'Prompt'} saved privately.`
+        editingId
+          ? 'Changes saved.'
+          : editing.visibility === 'public'
+            ? cloud
+              ? 'Published to the Community feed.'
+              : 'Published to the demo Community feed in this browser.'
+            : `${editing.kind === 'link' ? 'Affiliate link' : 'Prompt'} saved privately.`
       );
     } catch {
       problem = 'Could not save. Check your connection and try again.';
     } finally {
       busy = false;
+    }
+  }
+  function editItem(item: Item) {
+    if (!canManage(item)) return;
+    const own = items.find((owned) => owned._id === item._id) ?? item;
+    editingId = own._id;
+    editing = {
+      kind: own.kind,
+      title: own.title,
+      content: own.content,
+      tool: own.tool,
+      category: own.category,
+      visibility: own.visibility ?? 'private',
+      groupId: own.groupId
+    };
+    originalImage = own.imageUrl;
+    removeImage = false;
+    previewFile = undefined;
+    previewData = undefined;
+    imageProcessing = false;
+    imageError = '';
+    problem = '';
+    detail = null;
+    modal = true;
+  }
+  function persistGroups(next: LibraryGroup[]) {
+    localStorage.setItem('linkcraft-groups-v1', JSON.stringify(next));
+    localGroups = next;
+  }
+  async function createGroup(name: string) {
+    const problem = validateGroupName(name);
+    if (problem) throw new Error(problem);
+    if (cloud) {
+      if (!oncreategroup) throw new Error('Sign in first.');
+      await oncreategroup(groupKind, name);
+    } else
+      persistGroups([
+        ...localGroups,
+        { _id: crypto.randomUUID(), kind: groupKind, name: name.trim() }
+      ]);
+  }
+  async function renameGroup(id: string, name: string) {
+    if (cloud) {
+      if (!onrenamegroup) throw new Error('Sign in first.');
+      await onrenamegroup(id, name);
+    } else
+      persistGroups(
+        localGroups.map((group) => (group._id === id ? { ...group, name: name.trim() } : group))
+      );
+  }
+  async function removeGroup(id: string) {
+    if (cloud) {
+      if (!onremovegroup) throw new Error('Sign in first.');
+      await onremovegroup(id);
+    } else {
+      persist(
+        localItems.map((item) => (item.groupId === id ? { ...item, groupId: undefined } : item))
+      );
+      persistGroups(localGroups.filter((group) => group._id !== id));
     }
   }
   async function toggleFavorite(item: Item) {
@@ -407,13 +504,19 @@
     }
   }
   async function remove(item: Item) {
+    if (publishing || !canManage(item)) return;
+    publishing = true;
     try {
-      if (cloud) await onremove?.(item._id);
-      else persist(localItems.filter((i) => i._id !== item._id));
+      if (cloud) {
+        if (!onremove) throw new Error('Cloud deletion is unavailable.');
+        await onremove(item._id);
+      } else persist(localItems.filter((i) => i._id !== item._id));
       detail = null;
       notify('Item deleted.');
     } catch {
       notify('Could not delete this item. Please try again.');
+    } finally {
+      publishing = false;
     }
   }
   async function copy(item: Item) {
@@ -482,29 +585,8 @@
         : 'Welcome, Demo Creator! Your test workspace is ready.'
     );
   }
-  function rememberInstalled() {
-    canInstall = false;
-    try {
-      sessionStorage.setItem('linkcraft-installed-session', 'yes');
-    } catch {
-      /* Keep the in-memory state when storage is blocked. */
-    }
-  }
-  async function install() {
-    if (!canInstall) return;
-    if (installEvent) {
-      const pending = installEvent;
-      installEvent = null;
-      try {
-        await pending.prompt();
-        if ((await pending.userChoice).outcome === 'accepted') rememberInstalled();
-      } catch {
-        notify('Installation could not start. Try Add to Home Screen from your browser menu.');
-      }
-    } else
-      notify(
-        'To install on mobile, open your browser menu and choose Add to Home Screen. On iPhone or iPad, use the Share menu.'
-      );
+  function install() {
+    pwaInstall.show();
   }
   function exportItems() {
     const url = URL.createObjectURL(
@@ -717,6 +799,19 @@
           Could not load your workspace. Check your connection or Convex deployment.
         </div>{/if}
 
+      {#if ['links', 'prompts', 'text-to-image', 'image-to-video'].includes(view)}
+        <LibraryGroups
+          groups={libraryGroups}
+          bind:selected={selectedGroup}
+          disabled={checkingSession || (cloud && !authenticated)}
+          oncreate={createGroup}
+          onrename={renameGroup}
+          onremove={removeGroup}
+        />
+        {#if groupError}<div class="notice error" role="alert">
+            Could not load groups. Check your connection.
+          </div>{/if}
+      {/if}
       {#if view === 'prompts' || view === 'more'}
         <WorkspaceMenu
           kind={view}
@@ -731,6 +826,15 @@
           oninstall={install}
           {canInstall}
         />
+        {#if view === 'prompts'}<div class="item-grid prompt-library-grid">
+            {#each visible as item (item._id)}<ItemCard
+                {item}
+                {copied}
+                oncopy={copy}
+                onfavorite={toggleFavorite}
+                ondetail={(item) => (detail = item)}
+              />{/each}
+          </div>{/if}
       {:else if view === 'admin'}
         {#if checkingSession || adminAccessLoading || !ready}
           <div class="empty-state">
@@ -1094,7 +1198,10 @@
               ? 'SHARE WITH THE COMMUNITY'
               : 'GROW YOUR COLLECTION'}</span
           >
-          <h2 id="new-title">Add {editing.kind === 'link' ? 'an affiliate link' : 'a prompt'}</h2>
+          <h2 id="new-title">
+            {editingId ? 'Edit' : 'Add'}
+            {editing.kind === 'link' ? 'an affiliate link' : 'a prompt'}
+          </h2>
         </div>
         <button
           class="icon-button"
@@ -1105,24 +1212,28 @@
       </div>
       <form onsubmit={save}>
         <fieldset class="item-fields" disabled={busy}>
-          <div class="form-toggle">
-            <button
-              type="button"
-              class:chosen={editing.kind === 'link'}
-              onclick={() => (editing.kind = 'link')}><Link size={15} />Affiliate link</button
-            ><button
-              type="button"
-              class:chosen={editing.kind === 'prompt'}
-              onclick={() => {
-                editing.kind = 'prompt';
-                previewFile = undefined;
-                previewData = undefined;
-                imageProcessing = false;
-                imageError = '';
-                editing.category ??= 'text-to-image';
-              }}><Sparkles size={15} />Prompt</button
-            >
-          </div>
+          {#if !editingId}<div class="form-toggle">
+              <button
+                type="button"
+                class:chosen={editing.kind === 'link'}
+                onclick={() => {
+                  if (editing.kind !== 'link') editing.groupId = undefined;
+                  editing.kind = 'link';
+                }}><Link size={15} />Affiliate link</button
+              ><button
+                type="button"
+                class:chosen={editing.kind === 'prompt'}
+                onclick={() => {
+                  if (editing.kind !== 'prompt') editing.groupId = undefined;
+                  editing.kind = 'prompt';
+                  previewFile = undefined;
+                  previewData = undefined;
+                  imageProcessing = false;
+                  imageError = '';
+                  editing.category ??= 'text-to-image';
+                }}><Sparkles size={15} />Prompt</button
+              >
+            </div>{/if}
           <label
             >Title<input
               required
@@ -1133,6 +1244,19 @@
               bind:value={editing.title}
             /></label
           >
+          {#if editingId && originalImage && !removeImage && !previewFile}<div
+              class="preview-picker-row"
+            >
+              <img
+                class="link-preview"
+                src={originalImage}
+                alt="Current preview"
+                width="64"
+                height="64"
+              /><button type="button" class="secondary-button" onclick={() => (removeImage = true)}
+                >Remove current image</button
+              >
+            </div>{/if}
           {#if editing.kind === 'link'}<PreviewImagePicker
               bind:file={previewFile}
               bind:dataUrl={previewData}
@@ -1173,6 +1297,16 @@
                 bind:value={editing.content}></textarea>{/if}</label
           >
           <label
+            >Group<select
+              value={editing.groupId ?? ''}
+              onchange={(event) => (editing.groupId = event.currentTarget.value || undefined)}
+              ><option value="">Ungrouped</option
+              >{#each groups.filter((group) => group.kind === editing.kind) as group (group._id)}<option
+                  value={group._id}>{group.name}</option
+                >{/each}</select
+            ></label
+          >
+          <label
             >Who can see this?<select bind:value={editing.visibility}
               ><option value="private">Private — only me</option><option
                 value="public"
@@ -1202,9 +1336,11 @@
               type="submit"
               >{busy
                 ? 'Saving…'
-                : editing.visibility === 'public'
-                  ? 'Publish post'
-                  : 'Save to workspace'}<Plus size={15} /></button
+                : editingId
+                  ? 'Save changes'
+                  : editing.visibility === 'public'
+                    ? 'Publish post'
+                    : 'Save to workspace'}<Plus size={15} /></button
             >
           </div>
         </fieldset>
@@ -1274,6 +1410,10 @@
         </div>{/if}
       <div class="modal-actions">
         {#if canManage(detail)}<button
+            class="secondary-button"
+            disabled={publishing}
+            onclick={() => detail && editItem(detail)}>Edit {detail.kind}</button
+          ><button
             class="delete-button"
             disabled={publishing}
             onclick={() => detail && remove(detail)}><Trash2 size={15} />Delete</button

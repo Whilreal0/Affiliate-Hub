@@ -3,7 +3,7 @@
   import { useQuery, usePaginatedQuery, useConvexClient } from 'convex-svelte';
   import { authClient } from './auth-client';
   import { page } from '$app/state';
-  import { itemApi, adminApi } from './api';
+  import { itemApi, adminApi, groupApi } from './api';
   import type { Id } from '$convex/_generated/dataModel';
   import Workspace from './Workspace.svelte';
   import type { WorkspaceView } from './types';
@@ -12,6 +12,7 @@
   const client = useConvexClient();
   const session = authClient.useSession();
   const items = useQuery(itemApi.list, () => (auth.isAuthenticated ? {} : 'skip'));
+  const groups = useQuery(groupApi.list, () => (auth.isAuthenticated ? {} : 'skip'));
   const feed = usePaginatedQuery(itemApi.publicFeed, {}, { initialNumItems: 24 });
   const adminAccess = useQuery(adminApi.access, () => (auth.isAuthenticated ? {} : 'skip'));
 </script>
@@ -28,6 +29,26 @@
   name={$session.data?.user.name ?? (auth.isAuthenticated ? page.data.authUser?.name : undefined)}
   cloudItems={items.data ?? []}
   cloudError={items.error?.message}
+  cloudGroups={groups.data ?? []}
+  groupError={groups.error?.message}
+  oncreategroup={async (kind, name) => {
+    await client.mutation(groupApi.create, { kind, name });
+  }}
+  onrenamegroup={async (id, name) => {
+    await client.mutation(groupApi.rename, { id: id as Id<'groups'>, name });
+  }}
+  onremovegroup={async (id) => {
+    await client.mutation(groupApi.remove, { id: id as Id<'groups'> });
+  }}
+  onupdate={async (id, item, image, removeImage) => {
+    if (image)
+      await client.action(itemApi.updateWithImage, {
+        ...item,
+        id: id as Id<'items'>,
+        image: await image.arrayBuffer()
+      });
+    else await client.mutation(itemApi.update, { ...item, id: id as Id<'items'>, removeImage });
+  }}
   publicItems={feed.results}
   publicLoading={feed.status === 'LoadingFirstPage' || feed.status === 'LoadingMore'}
   publicError={feed.error?.message}
