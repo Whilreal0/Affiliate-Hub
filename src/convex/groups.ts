@@ -68,3 +68,25 @@ export const remove = mutation({
     await ctx.db.delete(id);
   }
 });
+
+export const updateMembers = mutation({
+  args: { id: v.id('groups'), add: v.array(v.id('items')), remove: v.array(v.id('items')) },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const group = await ctx.db.get(args.id);
+    if (!group || group.owner !== user._id) throw new ConvexError('Group not found.');
+    if (args.add.length + args.remove.length > 200)
+      throw new ConvexError('Move up to 200 items at a time.');
+    const additions = new Set(args.add);
+    if (args.remove.some((id) => additions.has(id))) throw new ConvexError('Invalid selection.');
+    // Validate the whole batch before changing anything.
+    const records = await Promise.all([...args.add, ...args.remove].map((id) => ctx.db.get(id)));
+    if (records.some((item) => !item || item.owner !== user._id || item.kind !== group.kind))
+      throw new ConvexError('Choose items from your own matching library.');
+    for (const item of records) {
+      if (!item) continue;
+      if (additions.has(item._id)) await ctx.db.patch(item._id, { groupId: args.id });
+      else if (item.groupId === args.id) await ctx.db.patch(item._id, { groupId: undefined });
+    }
+  }
+});

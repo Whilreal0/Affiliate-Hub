@@ -28,6 +28,44 @@ const link = {
 const pageOptions = { paginationOpts: { numItems: 10, cursor: null } };
 
 describe('public posting and record privacy', () => {
+  it('moves existing items in batches while protecting ownership and library kind', async () => {
+    const t = createTest();
+    const alice = t.withIdentity({ subject: 'alice' });
+    const bob = t.withIdentity({ subject: 'bob' });
+    const first = await alice.mutation(api.groups.create, { name: 'First', kind: 'link' });
+    const second = await alice.mutation(api.groups.create, { name: 'Second', kind: 'link' });
+    const id = await alice.mutation(api.items.create, { ...link, groupId: first });
+    const other = await bob.mutation(api.items.create, link);
+    const prompt = await alice.mutation(api.items.create, {
+      ...link,
+      kind: 'prompt',
+      category: 'text-to-image'
+    });
+    await expect(
+      bob.mutation(api.groups.updateMembers, { id: second, add: [other], remove: [] })
+    ).rejects.toThrow('Group not found');
+    await expect(
+      alice.mutation(api.groups.updateMembers, { id: second, add: [id, other], remove: [] })
+    ).rejects.toThrow('own matching library');
+    expect((await alice.query(api.items.list, {})).find((item) => item._id === id)?.groupId).toBe(
+      first
+    );
+    await expect(
+      alice.mutation(api.groups.updateMembers, { id: second, add: [prompt], remove: [] })
+    ).rejects.toThrow('own matching library');
+    await alice.mutation(api.groups.updateMembers, { id: second, add: [id], remove: [] });
+    const moved = (await alice.query(api.items.list, {})).find((item) => item._id === id)!;
+    expect(moved.groupId).toBe(second);
+    expect(moved.content).toBe(link.content);
+    await alice.mutation(api.groups.updateMembers, { id: first, add: [], remove: [id] });
+    expect((await alice.query(api.items.list, {})).find((item) => item._id === id)?.groupId).toBe(
+      second
+    );
+    await alice.mutation(api.groups.updateMembers, { id: second, add: [], remove: [id] });
+    expect(
+      (await alice.query(api.items.list, {})).find((item) => item._id === id)?.groupId
+    ).toBeUndefined();
+  });
   it('keeps groups private, separates link/prompt groups, and rejects cross-account assignments', async () => {
     const t = createTest();
     const alice = t.withIdentity({ subject: 'alice' });

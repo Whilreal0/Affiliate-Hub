@@ -41,6 +41,39 @@
   font-size: 13px;
   min-width: 0;
 }
+.group-item-count,
+.group-member-option small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.group-member-list {
+  max-height: 38dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 12px 0;
+}
+.group-member-list .group-member-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.group-member-option input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.group-member-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .prompt-library-grid {
   margin-top: 24px;
 }
@@ -805,6 +838,9 @@ nav button,
 }
 
 /* Every dialog becomes a bottom sheet at the small-screen breakpoint. */
+.sheet-drag-handle {
+  display: none;
+}
 @media (max-width: 850px) {
   .modal-backdrop {
     display: flex;
@@ -827,13 +863,24 @@ nav button,
     -webkit-overflow-scrolling: touch;
     box-shadow: 0 -12px 50px #18345726;
     animation: sheet-enter 180ms ease-out;
+    transition: translate 180ms ease-out;
   }
-  .modal::before {
+  .modal.sheet-dragging {
+    transition: none;
+    user-select: none;
+  }
+  .sheet-drag-handle {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 20px;
+    margin-top: -8px;
+    touch-action: none;
+  }
+  .sheet-drag-handle::before {
     content: '';
     display: block;
     width: 38px;
     height: 4px;
-    margin: 0 auto 20px;
     background: #d6deea;
     border-radius: 4px;
   }
@@ -863,6 +910,7 @@ nav button,
 @media (prefers-reduced-motion: reduce) {
   .modal {
     animation: none;
+    transition: none;
   }
 }
 

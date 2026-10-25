@@ -2,21 +2,25 @@
   import { Folder, Plus, X } from '@lucide/svelte';
   import { modalFocus } from './modal';
   import { validateGroupName } from './validation';
-  import type { LibraryGroup } from './types';
+  import type { Item, LibraryGroup } from './types';
   let {
     groups,
+    items,
     selected = $bindable('all'),
     disabled = false,
     oncreate,
     onrename,
-    onremove
+    onremove,
+    onmembers
   }: {
     groups: LibraryGroup[];
+    items: Item[];
     selected?: string;
     disabled?: boolean;
     oncreate: (name: string) => Promise<void>;
     onrename: (id: string, name: string) => Promise<void>;
     onremove: (id: string) => Promise<void>;
+    onmembers: (id: string, add: string[], remove: string[]) => Promise<void>;
   } = $props();
   let open = $state(false);
   let name = $state('');
@@ -24,11 +28,42 @@
   let deleting = $state<string | null>(null);
   let busy = $state(false);
   let error = $state('');
+  let managing = $state<string | null>(null);
+  let chosen = $state<string[]>([]);
+  let original = $state<string[]>([]);
+  let search = $state('');
+  const memberGroup = $derived(groups.find((group) => group._id === managing));
+  const matchingItems = $derived(
+    items.filter((item) => item.title.toLowerCase().includes(search.toLowerCase()))
+  );
   function reset() {
     editing = null;
     deleting = null;
     name = '';
     error = '';
+    managing = null;
+    chosen = [];
+    original = [];
+    search = '';
+  }
+  async function saveMembers() {
+    if (busy || !managing) return;
+    const add = chosen.filter((id) => !original.includes(id));
+    const remove = original.filter((id) => !chosen.includes(id));
+    if (add.length + remove.length > 200) {
+      error = 'Move up to 200 items at a time.';
+      return;
+    }
+    busy = true;
+    error = '';
+    try {
+      await onmembers(managing, add, remove);
+      reset();
+    } catch {
+      error = 'Could not update this group. Check your connection and try again.';
+    } finally {
+      busy = false;
+    }
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
@@ -113,59 +148,119 @@
           onclick={() => (open = false)}><X size={20} /></button
         >
       </div>
-      <form onsubmit={save}>
-        <label
-          >Group name<input
-            maxlength="60"
-            required
-            bind:value={name}
-            disabled={busy}
-            placeholder="e.g. Home essentials"
-          /></label
-        >
-        <div class="modal-actions">
-          {#if editing}<button
-              type="button"
-              class="secondary-button"
+      {#if memberGroup}
+        <section class="group-members" aria-label="Group contents">
+          <h3>{memberGroup.name}</h3>
+          <p class="form-hint">
+            Select existing links or prompts to include. Choosing an item from another group moves
+            it here. Unchecking an item moves it to Ungrouped.
+          </p>
+          <label
+            >Search library<input
+              type="search"
+              bind:value={search}
               disabled={busy}
-              onclick={reset}>Cancel rename</button
-            >{/if}<button class="primary-button" disabled={busy}
-            >{editing ? 'Rename group' : 'Create group'}</button
+              placeholder="Search by title"
+            /></label
           >
-        </div>
-      </form>
-      <div class="group-list">
-        {#each groups as group (group._id)}<div class="group-row">
-            <strong>{group.name}</strong><button
-              class="text-button"
-              disabled={busy}
-              onclick={() => {
-                editing = group._id;
-                deleting = null;
-                name = group.name;
-                error = '';
-              }}>Rename</button
-            ><button
-              class="text-button"
-              disabled={busy}
-              onclick={() => {
-                reset();
-                deleting = group._id;
-              }}>Delete group</button
-            >
-          </div>{/each}
-      </div>
-      {#if deleting}<div class="notice">
-          <p>Delete this group? Its links or prompts will stay in your library as ungrouped.</p>
+          <p class="form-hint">{chosen.length} selected</p>
+          <div class="group-member-list">
+            {#each matchingItems as item (item._id)}
+              <label class="group-member-option">
+                <input type="checkbox" value={item._id} bind:group={chosen} disabled={busy} />
+                <span
+                  ><strong>{item.title}</strong><small
+                    >{groups.find((group) => group._id === item.groupId)?.name ??
+                      'Ungrouped'}</small
+                  ></span
+                >
+              </label>
+            {:else}<p class="form-hint">
+                {items.length
+                  ? 'No matching items.'
+                  : 'Create a link or prompt first, then add it here.'}
+              </p>{/each}
+          </div>
           <div class="modal-actions">
-            <button class="secondary-button" disabled={busy} onclick={reset}>Keep group</button
-            ><button
-              class="primary-button"
-              disabled={busy}
-              onclick={() => deleting && remove(deleting)}>Confirm delete group</button
+            <button class="secondary-button" disabled={busy} onclick={reset}
+              >Cancel selection</button
+            >
+            <button class="primary-button" disabled={busy} onclick={saveMembers}
+              >{busy ? 'Saving…' : 'Save group contents'}</button
             >
           </div>
-        </div>{/if}
+        </section>
+      {:else}
+        <form onsubmit={save}>
+          <label
+            >Group name<input
+              maxlength="60"
+              required
+              bind:value={name}
+              disabled={busy}
+              placeholder="e.g. Home essentials"
+            /></label
+          >
+          <div class="modal-actions">
+            {#if editing}<button
+                type="button"
+                class="secondary-button"
+                disabled={busy}
+                onclick={reset}>Cancel rename</button
+              >{/if}<button class="primary-button" disabled={busy}
+              >{editing ? 'Rename group' : 'Create group'}</button
+            >
+          </div>
+        </form>
+        <div class="group-list">
+          {#each groups as group (group._id)}<div class="group-row">
+              <strong
+                ><span>{group.name}</span><small class="group-item-count"
+                  >{items.filter((item) => item.groupId === group._id).length} items</small
+                ></strong
+              >
+              <button
+                class="text-button"
+                disabled={busy}
+                onclick={() => {
+                  reset();
+                  managing = group._id;
+                  original = items
+                    .filter((item) => item.groupId === group._id)
+                    .map((item) => item._id);
+                  chosen = [...original];
+                }}>Add / manage items</button
+              ><button
+                class="text-button"
+                disabled={busy}
+                onclick={() => {
+                  editing = group._id;
+                  deleting = null;
+                  name = group.name;
+                  error = '';
+                }}>Rename</button
+              ><button
+                class="text-button"
+                disabled={busy}
+                onclick={() => {
+                  reset();
+                  deleting = group._id;
+                }}>Delete group</button
+              >
+            </div>{/each}
+        </div>
+        {#if deleting}<div class="notice">
+            <p>Delete this group? Its links or prompts will stay in your library as ungrouped.</p>
+            <div class="modal-actions">
+              <button class="secondary-button" disabled={busy} onclick={reset}>Keep group</button
+              ><button
+                class="primary-button"
+                disabled={busy}
+                onclick={() => deleting && remove(deleting)}>Confirm delete group</button
+              >
+            </div>
+          </div>{/if}
+      {/if}
       {#if error}<p class="form-error" role="alert">{error}</p>{/if}
     </div>
   </div>

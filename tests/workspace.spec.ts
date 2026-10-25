@@ -1,5 +1,110 @@
 import { test, expect } from '@playwright/test';
 
+test('adds existing library links to groups and moves or removes them without editing the link', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/links');
+  await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Title', { exact: true }).fill('Existing camera');
+  await dialog.getByLabel('Affiliate URL').fill('https://example.com/camera?ref=creator');
+  await dialog.getByRole('button', { name: 'Save to workspace' }).click();
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  for (const name of ['Cameras', 'Favorites']) {
+    await dialog.getByLabel('Group name', { exact: true }).fill(name);
+    await dialog.getByRole('button', { name: 'Create group', exact: true }).click();
+    await expect(dialog.getByText(name, { exact: true })).toBeVisible();
+  }
+  const row = (name: string) =>
+    dialog.locator('.group-row').filter({ has: page.getByText(name, { exact: true }) });
+  await row('Cameras').getByRole('button', { name: 'Add / manage items', exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Existing camera Ungrouped', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Save group contents', exact: true }).click();
+  await expect(row('Cameras').getByText('1 items', { exact: true })).toBeVisible();
+  await row('Favorites').getByRole('button', { name: 'Add / manage items', exact: true }).click();
+  await dialog.getByLabel('Search library', { exact: true }).fill('camera');
+  await dialog.getByRole('checkbox', { name: 'Existing camera Cameras', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Save group contents', exact: true }).click();
+  await expect(row('Cameras').getByText('0 items', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close groups' }).click();
+  await page.getByLabel('Filter by group').selectOption({ label: 'Favorites' });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Existing camera', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  await row('Favorites').getByRole('button', { name: 'Add / manage items', exact: true }).click();
+  await dialog.getByRole('checkbox', { name: 'Existing camera Favorites', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Save group contents', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close groups' }).click();
+  await page.getByLabel('Filter by group').selectOption('ungrouped');
+  await expect(page.getByRole('heading', { name: 'Existing camera', exact: true })).toBeVisible();
+});
+
+test('mobile sheets drag down to dismiss while preserving scrolling, inputs and short gestures', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('heading', { name: 'The everyday essential', exact: true }).waitFor();
+  const dialog = page.getByRole('dialog');
+  const swipe = async (selector: string, distance: number, cancel = false) => {
+    await dialog.evaluate(
+      (node, { selector, distance, cancel }) => {
+        const target = node.querySelector(selector)!;
+        const bounds = target.getBoundingClientRect();
+        const dispatch = (type: string, y: number) => {
+          const touch = new Touch({ identifier: 1, target, clientX: bounds.x + 20, clientY: y });
+          target.dispatchEvent(
+            new TouchEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              touches: type === 'touchend' || type === 'touchcancel' ? [] : [touch],
+              changedTouches: [touch]
+            })
+          );
+        };
+        dispatch('touchstart', bounds.y + 10);
+        dispatch('touchmove', bounds.y + 10 + distance);
+        dispatch(cancel ? 'touchcancel' : 'touchend', bounds.y + 10 + distance);
+      },
+      { selector, distance, cancel }
+    );
+  };
+  await page.getByRole('button', { name: 'Demo sign in', exact: true }).click();
+  await swipe('.sheet-drag-handle', 25);
+  await expect(dialog).toBeVisible();
+  await swipe('.sheet-drag-handle', 170, true);
+  await expect(dialog).toBeVisible();
+  await swipe('input', 170);
+  await expect(dialog).toBeVisible();
+  await swipe('.sheet-drag-handle', 170);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
+  await dialog.evaluate((node) => {
+    node.style.maxHeight = '250px';
+    node.scrollTop = 100;
+  });
+  await swipe('.modal-heading', 170);
+  await expect(dialog).toBeVisible();
+  await dialog.evaluate((node) => {
+    node.scrollTop = 0;
+  });
+  await swipe('.sheet-drag-handle', 170);
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: /^The everyday essential Create/ }).click();
+  await swipe('.sheet-drag-handle', 170);
+  await expect(dialog).toHaveCount(0);
+  await page.goto('/links');
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  await swipe('.sheet-drag-handle', 170);
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Manage groups', exact: true }).click();
+  await swipe('.modal-heading', 170);
+  await expect(dialog).toBeVisible();
+});
+
 test('mobile sheets close on outside taps and preserve clicks inside', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');

@@ -44,6 +44,11 @@ export const adminApi = {
 };
 
 export const groupApi = {
+  updateMembers: makeFunctionReference<
+    'mutation',
+    { id: Id<'groups'>; add: Id<'items'>[]; remove: Id<'items'>[] },
+    null
+  >('groups:updateMembers'),
   list: makeFunctionReference<'query', Record<string, never>, LibraryGroup[]>('groups:list'),
   create: makeFunctionReference<
     'mutation',

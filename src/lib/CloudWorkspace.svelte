@@ -31,6 +31,13 @@
   cloudError={items.error?.message}
   cloudGroups={groups.data ?? []}
   groupError={groups.error?.message}
+  ongroupmembers={async (id, add, remove) => {
+    await client.mutation(groupApi.updateMembers, {
+      id: id as Id<'groups'>,
+      add: add as Id<'items'>[],
+      remove: remove as Id<'items'>[]
+    });
+  }}
   oncreategroup={async (kind, name) => {
     await client.mutation(groupApi.create, { kind, name });
   }}

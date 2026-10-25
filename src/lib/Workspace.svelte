@@ -60,6 +60,7 @@
     oncreategroup,
     onrenamegroup,
     onremovegroup,
+    ongroupmembers,
     onfavorite,
     onremove,
     superAdmin = false,
@@ -83,6 +84,7 @@
     oncreategroup?: (kind: 'link' | 'prompt', name: string) => Promise<void>;
     onrenamegroup?: (id: string, name: string) => Promise<void>;
     onremovegroup?: (id: string) => Promise<void>;
+    ongroupmembers?: (id: string, add: string[], remove: string[]) => Promise<void>;
     oncreate?: (item: NewItem, image?: File) => Promise<void>;
     onfavorite?: (id: string) => Promise<void>;
     onremove?: (id: string) => Promise<void>;
@@ -454,6 +456,25 @@
       persistGroups(localGroups.filter((group) => group._id !== id));
     }
   }
+  async function updateGroupMembers(id: string, add: string[], remove: string[]) {
+    if (cloud) {
+      if (!authenticated || !ongroupmembers) throw new Error('Sign in first.');
+      await ongroupmembers(id, add, remove);
+    } else {
+      const group = localGroups.find((group) => group._id === id);
+      if (!group) throw new Error('Group not found.');
+      persist(
+        localItems.map((item) => {
+          if (item.kind !== group.kind) return item;
+          if (add.includes(item._id)) return { ...item, groupId: id };
+          if (remove.includes(item._id) && item.groupId === id)
+            return { ...item, groupId: undefined };
+          return item;
+        })
+      );
+    }
+    notify('Group updated');
+  }
   async function toggleFavorite(item: Item) {
     try {
       if (cloud) await onfavorite?.(item._id);
@@ -802,11 +823,13 @@
       {#if ['links', 'prompts', 'text-to-image', 'image-to-video'].includes(view)}
         <LibraryGroups
           groups={libraryGroups}
+          items={items.filter((item) => item.kind === groupKind)}
           bind:selected={selectedGroup}
           disabled={checkingSession || (cloud && !authenticated)}
           oncreate={createGroup}
           onrename={renameGroup}
           onremove={removeGroup}
+          onmembers={updateGroupMembers}
         />
         {#if groupError}<div class="notice error" role="alert">
             Could not load groups. Check your connection.
