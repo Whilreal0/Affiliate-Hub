@@ -119,6 +119,7 @@
   let installEvent = $state<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
   >(null);
+  let canInstall = $state(false);
   let online = $state(true);
   let toastTimer: ReturnType<typeof setTimeout>;
   let copyTimer: ReturnType<typeof setTimeout>;
@@ -191,6 +192,25 @@
     localItems = next;
   }
   onMount(() => {
+    const mobile =
+      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = window.matchMedia('(display-mode: standalone)');
+    let installedHere = false;
+    try {
+      installedHere = sessionStorage.getItem('linkcraft-installed-session') === 'yes';
+    } catch {
+      /* Display mode still detects installed app windows. */
+    }
+    const updateInstallVisibility = () => {
+      canInstall =
+        mobile &&
+        !installedHere &&
+        !standalone.matches &&
+        !(navigator as Navigator & { standalone?: boolean }).standalone;
+    };
+    updateInstallVisibility();
+    standalone.addEventListener('change', updateInstallVisibility);
     if (!cloud) {
       try {
         const storedSession = sessionStorage.getItem('linkcraft-demo-session');
@@ -237,10 +257,12 @@
     const status = () => (online = navigator.onLine);
     const install = (e: Event) => {
       e.preventDefault();
-      installEvent = e as typeof installEvent;
+      if (canInstall) installEvent = e as typeof installEvent;
     };
     const installed = () => {
       installEvent = null;
+      installedHere = true;
+      rememberInstalled();
       notify('Linkcraft installed. You’re all set!');
     };
     window.addEventListener('online', status);
@@ -254,6 +276,7 @@
       window.removeEventListener('offline', status);
       window.removeEventListener('beforeinstallprompt', install);
       window.removeEventListener('appinstalled', installed);
+      standalone.removeEventListener('change', updateInstallVisibility);
     };
   });
   function navigate(next: View) {
@@ -459,13 +482,29 @@
         : 'Welcome, Demo Creator! Your test workspace is ready.'
     );
   }
+  function rememberInstalled() {
+    canInstall = false;
+    try {
+      sessionStorage.setItem('linkcraft-installed-session', 'yes');
+    } catch {
+      /* Keep the in-memory state when storage is blocked. */
+    }
+  }
   async function install() {
+    if (!canInstall) return;
     if (installEvent) {
-      await installEvent.prompt();
-      await installEvent.userChoice;
+      const pending = installEvent;
       installEvent = null;
+      try {
+        await pending.prompt();
+        if ((await pending.userChoice).outcome === 'accepted') rememberInstalled();
+      } catch {
+        notify('Installation could not start. Try Add to Home Screen from your browser menu.');
+      }
     } else
-      notify('To install, open your browser menu and choose Install app or Add to Home Screen.');
+      notify(
+        'To install on mobile, open your browser menu and choose Add to Home Screen. On iPhone or iPad, use the Share menu.'
+      );
   }
   function exportItems() {
     const url = URL.createObjectURL(
@@ -549,12 +588,12 @@
       >
     </nav>
     <div class="sidebar-bottom">
-      <div class="install-card">
-        <span class="install-icon"><Download size={18} /></span>
-        <h3>Your workspace, anywhere.</h3>
-        <p>Keep your next great idea within reach.</p>
-        <button onclick={install}>Install Linkcraft<ArrowUpRight size={14} /></button>
-      </div>
+      {#if canInstall}<div class="install-card">
+          <span class="install-icon"><Download size={18} /></span>
+          <h3>Your workspace, anywhere.</h3>
+          <p>Keep your next great idea within reach.</p>
+          <button onclick={install}>Install Linkcraft<ArrowUpRight size={14} /></button>
+        </div>{/if}
       <button
         class="settings-link"
         class:active={view === 'settings'}
@@ -690,6 +729,7 @@
           onlogin={login}
           onlogout={logout}
           oninstall={install}
+          {canInstall}
         />
       {:else if view === 'admin'}
         {#if checkingSession || adminAccessLoading || !ready}
@@ -759,17 +799,17 @@
                     : 'Demo sign in'}<ArrowUpRight size={16} /></button
             >
           </article>
-          <article class="settings-card">
-            <span class="section-kicker">INSTALL THE APP</span>
-            <h2>A home for your workflow.</h2>
-            <p>
-              Install Linkcraft from your browser. On iPhone or iPad, use Safari’s Share menu, then
-              Add to Home Screen. Cloud storage needs an internet connection.
-            </p>
-            <button class="secondary-button" onclick={install}
-              ><Download size={16} />Install app</button
-            >
-          </article>
+          {#if canInstall}<article class="settings-card">
+              <span class="section-kicker">INSTALL THE APP</span>
+              <h2>A home for your workflow.</h2>
+              <p>
+                Install Linkcraft from your browser. On iPhone or iPad, use Safari’s Share menu,
+                then Add to Home Screen. Cloud storage needs an internet connection.
+              </p>
+              <button class="secondary-button" onclick={install}
+                ><Download size={16} />Install app</button
+              >
+            </article>{/if}
           <article class="settings-card">
             <span class="section-kicker">YOUR DATA</span>
             <h2>Take your library with you.</h2>
@@ -934,6 +974,7 @@
                 >{/if}
               <label class="search-box"
                 ><Search size={16} /><input
+                  maxlength="200"
                   aria-label="Search library"
                   placeholder={view === 'community'
                     ? 'Search loaded posts…'
@@ -1063,105 +1104,110 @@
         >
       </div>
       <form onsubmit={save}>
-        <div class="form-toggle">
-          <button
-            type="button"
-            class:chosen={editing.kind === 'link'}
-            onclick={() => (editing.kind = 'link')}><Link size={15} />Affiliate link</button
-          ><button
-            type="button"
-            class:chosen={editing.kind === 'prompt'}
-            onclick={() => {
-              editing.kind = 'prompt';
-              previewFile = undefined;
-              previewData = undefined;
-              imageProcessing = false;
-              imageError = '';
-              editing.category ??= 'text-to-image';
-            }}><Sparkles size={15} />Prompt</button
-          >
-        </div>
-        <label
-          >Title<input
-            required
-            maxlength="120"
-            placeholder={editing.kind === 'link'
-              ? 'e.g. My favorite desk lamp'
-              : 'e.g. Warm morning product photo'}
-            bind:value={editing.title}
-          /></label
-        >
-        {#if editing.kind === 'link'}<PreviewImagePicker
-            bind:file={previewFile}
-            bind:dataUrl={previewData}
-            bind:processing={imageProcessing}
-            bind:error={imageError}
-            disabled={busy}
-          />{/if}
-        <div class="form-row" class:single-column={editing.kind === 'link'}>
-          {#if editing.kind === 'prompt'}<label
-              >Category<select bind:value={editing.category}
-                ><option value="text-to-image">Text to image</option><option value="image-to-video"
-                  >Image to video</option
-                ></select
-              ></label
-            >{/if}
+        <fieldset class="item-fields" disabled={busy}>
+          <div class="form-toggle">
+            <button
+              type="button"
+              class:chosen={editing.kind === 'link'}
+              onclick={() => (editing.kind = 'link')}><Link size={15} />Affiliate link</button
+            ><button
+              type="button"
+              class:chosen={editing.kind === 'prompt'}
+              onclick={() => {
+                editing.kind = 'prompt';
+                previewFile = undefined;
+                previewData = undefined;
+                imageProcessing = false;
+                imageError = '';
+                editing.category ??= 'text-to-image';
+              }}><Sparkles size={15} />Prompt</button
+            >
+          </div>
           <label
-            >{editing.kind === 'link' ? 'Brand / platform' : 'AI tool (optional)'}<input
-              maxlength="80"
-              placeholder={editing.kind === 'link' ? 'e.g. My store' : 'e.g. Any image model'}
-              bind:value={editing.tool}
+            >Title<input
+              required
+              maxlength="120"
+              placeholder={editing.kind === 'link'
+                ? 'e.g. My favorite desk lamp'
+                : 'e.g. Warm morning product photo'}
+              bind:value={editing.title}
             /></label
           >
-        </div>
-        <label
-          >{editing.kind === 'link' ? 'Affiliate URL' : 'Prompt'}{#if editing.kind === 'link'}<input
-              type="url"
-              required
-              placeholder="https://example.com/your-affiliate-link"
-              bind:value={editing.content}
-            />{:else}<textarea
-              required
-              rows="6"
-              maxlength="12000"
-              placeholder="Describe your visual. Use [PRODUCT] for a reusable placeholder…"
-              bind:value={editing.content}></textarea>{/if}</label
-        >
-        <label
-          >Who can see this?<select bind:value={editing.visibility}
-            ><option value="private">Private — only me</option><option
-              value="public"
-              disabled={!signedIn}>Public — everyone</option
-            ></select
-          ></label
-        >
-        <p class="form-hint">
-          {editing.visibility === 'public'
-            ? cloud
-              ? 'Anyone can see this post and your display name in the Community feed.'
-              : 'This demo post will appear in this browser’s Community feed. Connect Convex to share across users.'
-            : cloud
-              ? 'Saved privately to your account. You can publish it later.'
-              : 'Saved in this browser. Sign in to the demo account to try public posting.'}
-        </p>
-        {#if problem}<p class="form-error" role="alert">{problem}</p>{/if}
-        <div class="modal-actions">
-          <button
-            type="button"
-            class="secondary-button"
-            disabled={busy}
-            onclick={() => (modal = false)}>Cancel</button
-          ><button
-            class="primary-button"
-            disabled={busy || imageProcessing || !!imageError}
-            type="submit"
-            >{busy
-              ? 'Saving…'
-              : editing.visibility === 'public'
-                ? 'Publish post'
-                : 'Save to workspace'}<Plus size={15} /></button
+          {#if editing.kind === 'link'}<PreviewImagePicker
+              bind:file={previewFile}
+              bind:dataUrl={previewData}
+              bind:processing={imageProcessing}
+              bind:error={imageError}
+              disabled={busy}
+            />{/if}
+          <div class="form-row" class:single-column={editing.kind === 'link'}>
+            {#if editing.kind === 'prompt'}<label
+                >Category<select bind:value={editing.category}
+                  ><option value="text-to-image">Text to image</option><option
+                    value="image-to-video">Image to video</option
+                  ></select
+                ></label
+              >{/if}
+            <label
+              >{editing.kind === 'link' ? 'Brand / platform' : 'AI tool (optional)'}<input
+                maxlength="80"
+                placeholder={editing.kind === 'link' ? 'e.g. My store' : 'e.g. Any image model'}
+                bind:value={editing.tool}
+              /></label
+            >
+          </div>
+          <label
+            >{editing.kind === 'link'
+              ? 'Affiliate URL'
+              : 'Prompt'}{#if editing.kind === 'link'}<input
+                type="url"
+                required
+                maxlength="12000"
+                placeholder="https://example.com/your-affiliate-link"
+                bind:value={editing.content}
+              />{:else}<textarea
+                required
+                rows="6"
+                maxlength="12000"
+                placeholder="Describe your visual. Use [PRODUCT] for a reusable placeholder…"
+                bind:value={editing.content}></textarea>{/if}</label
           >
-        </div>
+          <label
+            >Who can see this?<select bind:value={editing.visibility}
+              ><option value="private">Private — only me</option><option
+                value="public"
+                disabled={!signedIn}>Public — everyone</option
+              ></select
+            ></label
+          >
+          <p class="form-hint">
+            {editing.visibility === 'public'
+              ? cloud
+                ? 'Anyone can see this post and your display name in the Community feed.'
+                : 'This demo post will appear in this browser’s Community feed. Connect Convex to share across users.'
+              : cloud
+                ? 'Saved privately to your account. You can publish it later.'
+                : 'Saved in this browser. Sign in to the demo account to try public posting.'}
+          </p>
+          {#if problem}<p class="form-error" role="alert">{problem}</p>{/if}
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="secondary-button"
+              disabled={busy}
+              onclick={() => (modal = false)}>Cancel</button
+            ><button
+              class="primary-button"
+              disabled={busy || imageProcessing || !!imageError}
+              type="submit"
+              >{busy
+                ? 'Saving…'
+                : editing.visibility === 'public'
+                  ? 'Publish post'
+                  : 'Save to workspace'}<Plus size={15} /></button
+            >
+          </div>
+        </fieldset>
       </form>
     </div>
   </div>

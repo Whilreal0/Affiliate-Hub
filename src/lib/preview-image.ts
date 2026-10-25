@@ -12,6 +12,8 @@ export async function preparePreviewImage(input: File): Promise<{ file: File; da
     throw new Error('This image could not be opened. Try a JPG or PNG.');
   }
   try {
+    if (!bitmap.width || !bitmap.height || bitmap.width * bitmap.height > 40_000_000)
+      throw new Error('Choose an image with at most 40 megapixels.');
     const canvas = document.createElement('canvas');
     const scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
     canvas.width = Math.max(1, Math.round(bitmap.width * scale));

@@ -5,6 +5,13 @@ createServer((request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   if (request.url === '/health') return response.end('{}');
+  if (request.url === '/api/auth/cookie-test') {
+    response.setHeader('Set-Cookie', [
+      'first=one; HttpOnly; Path=/',
+      'second=two; HttpOnly; Path=/'
+    ]);
+    return response.end('{}');
+  }
   if (request.url?.startsWith('/api/auth/get-session')) {
     const cookie = request.headers.cookie ?? '';
     const valid = cookie.includes('better-auth.session_token=valid-session');

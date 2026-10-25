@@ -20,7 +20,8 @@
     videoCount = 0,
     onlogin,
     onlogout,
-    oninstall
+    oninstall,
+    canInstall = false
   }: {
     kind: 'prompts' | 'more';
     superAdmin?: boolean;
@@ -32,6 +33,7 @@
     onlogin: () => void | Promise<void>;
     onlogout: () => void | Promise<void>;
     oninstall: () => void | Promise<void>;
+    canInstall?: boolean;
   } = $props();
 </script>
 
@@ -83,11 +85,11 @@
         ><strong>Settings & setup</strong><small>Account, storage, and app settings</small></span
       ><ChevronRight size={16} /></a
     >
-    <button class="menu-card" onclick={oninstall}
-      ><Download size={21} /><span
-        ><strong>Install app</strong><small>Add Linkcraft to your home screen</small></span
-      ><ChevronRight size={16} /></button
-    >
+    {#if canInstall}<button class="menu-card" onclick={oninstall}
+        ><Download size={21} /><span
+          ><strong>Install app</strong><small>Add Linkcraft to your home screen</small></span
+        ><ChevronRight size={16} /></button
+      >{/if}
     <button
       class="menu-card"
       disabled={checkingSession}

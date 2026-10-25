@@ -5,6 +5,15 @@ test.beforeEach(async ({ page }) => {
   await page.route('https://auth-test.convex.cloud/**', (route) => route.abort());
 });
 
+test('security headers preserve separate auth cookies through the proxy', async ({ request }) => {
+  const response = await request.get('/api/auth/cookie-test');
+  expect(response.status()).toBe(200);
+  expect(response.headers()['x-content-type-options']).toBe('nosniff');
+  expect(
+    response.headersArray().filter((header) => header.name.toLowerCase() === 'set-cookie')
+  ).toHaveLength(2);
+});
+
 test('refresh waits for session validation before showing Google sign-in', async ({ page }) => {
   let resolveSession: (() => void) | undefined;
   await page.route('**/api/auth/get-session**', async (route) => {

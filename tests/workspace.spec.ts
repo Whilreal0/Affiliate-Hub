@@ -310,6 +310,87 @@ test('mobile layout has no horizontal overflow and navigation works', async ({ p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('install controls stay off desktop, work on mobile, and disappear in installed app windows', async ({
+  browser,
+  baseURL
+}) => {
+  const android =
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36';
+  for (const mobile of [false, true]) {
+    const context = await browser.newContext({
+      baseURL,
+      ...(mobile ? { userAgent: android, isMobile: true, hasTouch: true } : {}),
+      viewport: { width: 390, height: 844 }
+    });
+    const page = await context.newPage();
+    await page.goto('/more');
+    await expect(page.getByRole('heading', { name: 'Your workspace, your way.' })).toBeVisible();
+    const button = page.getByRole('button', { name: /^Install app/ });
+    await expect(button).toHaveCount(mobile ? 1 : 0);
+    await page.evaluate(() => {
+      const event = new Event('beforeinstallprompt', { cancelable: true });
+      Object.assign(event, {
+        prompt: async () => {
+          document.body.dataset.prompted = 'yes';
+        },
+        userChoice: Promise.resolve({ outcome: 'accepted' })
+      });
+      window.dispatchEvent(event);
+    });
+    if (mobile) {
+      await button.click();
+      await expect(button).toHaveCount(0);
+      expect(await page.locator('body').getAttribute('data-prompted')).toBe('yes');
+    }
+    await page.goto('/settings');
+    await expect(page.getByRole('button', { name: /^Install/ })).toHaveCount(0);
+    await context.close();
+  }
+  const installed = await browser.newContext({
+    baseURL,
+    userAgent: android,
+    isMobile: true,
+    hasTouch: true
+  });
+  await installed.addInitScript(() => {
+    const original = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const result = original(query);
+      if (query === '(display-mode: standalone)')
+        Object.defineProperty(result, 'matches', { value: true });
+      return result;
+    };
+  });
+  const app = await installed.newPage();
+  await app.goto('/settings');
+  await expect(app.getByRole('heading', { name: 'Make yourself at home.' })).toBeVisible();
+  await expect(app.getByRole('button', { name: /^Install/ })).toHaveCount(0);
+  await installed.close();
+});
+
+test('text inputs render markup as text and reject unsafe affiliate URLs', async ({ page }) => {
+  await page.goto('/links');
+  await page.getByRole('button', { name: 'Add affiliate link', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveAttribute('maxlength', '120');
+  await expect(dialog.getByLabel('Affiliate URL')).toHaveAttribute('maxlength', '12000');
+  await dialog.getByLabel('Title', { exact: true }).fill('Unsafe link');
+  await dialog.getByLabel('Affiliate URL').fill('https://user:password@example.com');
+  await dialog.getByRole('button', { name: 'Save to workspace' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('embedded');
+  await dialog.getByRole('button', { name: 'Prompt', exact: true }).click();
+  const title = '<img src=x onerror="window.inputExecuted=true">';
+  await dialog.getByLabel('Title', { exact: true }).fill(title);
+  await dialog
+    .getByLabel('Prompt', { exact: true })
+    .fill('<script>window.inputExecuted=true</script>');
+  await dialog.getByRole('button', { name: 'Save to workspace' }).click();
+  await page.goto('/text-to-image');
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  expect(await page.evaluate(() => 'inputExecuted' in window)).toBe(false);
+  await expect(page.locator('img[src="x"]')).toHaveCount(0);
+});
+
 test('PWA assets, offline fallback, and unconfigured auth response', async ({
   page,
   context,
@@ -320,6 +401,7 @@ test('PWA assets, offline fallback, and unconfigured auth response', async ({
   expect((await manifest.json()).display).toBe('standalone');
   expect((await request.get('/icons/icon-192.png')).ok()).toBe(true);
   expect((await request.get('/api/auth/get-session')).status()).toBe(503);
+  expect((await request.get('/')).headers()['x-content-type-options']).toBe('nosniff');
   await page.goto('/');
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
@@ -328,6 +410,16 @@ test('PWA assets, offline fallback, and unconfigured auth response', async ({
   await expect
     .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null))
     .toBe(true);
+  await page.evaluate(() => fetch('/api/auth/get-session'));
+  const cached = await page.evaluate(async () => {
+    const paths: string[] = [];
+    for (const key of await caches.keys())
+      for (const request of await (await caches.open(key)).keys())
+        paths.push(new URL(request.url).pathname);
+    return paths;
+  });
+  expect(cached).not.toContain('/api/auth/get-session');
+  expect(cached).not.toContain('/');
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'A little pause.', exact: true })).toBeVisible();

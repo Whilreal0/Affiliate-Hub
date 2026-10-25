@@ -81,6 +81,7 @@
   <div class="admin-toolbar">
     <label class="search-box"
       ><Search size={16} /><input
+        maxlength="200"
         aria-label="Search registered users"
         placeholder="Search loaded names or emails…"
         bind:value={search}

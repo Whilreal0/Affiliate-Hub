@@ -54,6 +54,7 @@
       <label
         >Email<input
           type="email"
+          maxlength="254"
           autocomplete="username"
           required
           bind:value={email}
@@ -63,6 +64,7 @@
       <label
         >Password<input
           type="password"
+          maxlength="128"
           autocomplete="current-password"
           required
           bind:value={password}

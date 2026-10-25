@@ -5,6 +5,11 @@ export function validateItem(item: {
   kind: string;
   category?: string;
 }): string | null {
+  if (!['link', 'prompt'].includes(item.kind)) return 'Choose an affiliate link or prompt.';
+  if ([item.title, item.content, item.tool].some((value) => typeof value !== 'string'))
+    return 'Enter valid text in each field.';
+  if (/[\u0000-\u001f\u007f]/.test(item.title + item.tool))
+    return 'Names must not contain control characters.';
   if (!item.title.trim() || item.title.length > 120) return 'Enter a title of 1–120 characters.';
   if (!item.content.trim() || item.content.length > 12000)
     return 'Enter content of 1–12,000 characters.';
@@ -15,6 +20,13 @@ export function validateItem(item: {
     try {
       const url = new URL(item.content.trim());
       if (!['https:', 'http:'].includes(url.protocol)) return 'Use an http or https link.';
+      if (
+        !/^https?:\/\//i.test(item.content.trim()) ||
+        /\s|[\u0000-\u001f\u007f]/.test(item.content.trim())
+      )
+        return 'Enter a complete URL without spaces or control characters.';
+      if (url.username || url.password)
+        return 'Links must not contain embedded usernames or passwords.';
     } catch {
       return 'Enter a complete URL, including https://.';
     }

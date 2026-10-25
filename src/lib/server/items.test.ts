@@ -151,6 +151,14 @@ describe('public posting and record privacy', () => {
   it('rejects anonymous publishing, unsafe links, and uncategorized prompts', async () => {
     const t = createTest();
     const alice = t.withIdentity({ subject: 'alice', name: 'Alice' });
+    for (const invalid of [
+      { title: 'x'.repeat(121) },
+      { tool: 'x'.repeat(81) },
+      { content: 'https://user:password@example.com' },
+      { title: 'bad\u0000title' }
+    ]) {
+      await expect(alice.mutation(api.items.create, { ...link, ...invalid })).rejects.toThrow();
+    }
     await expect(t.mutation(api.items.create, { ...link, visibility: 'public' })).rejects.toThrow(
       'Unauthenticated'
     );
